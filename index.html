@@ -1,1 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Blind Air Hockey</title>
+<style>
+html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;}
+#game{position:relative;width:100vw;height:100vh;touch-action:none;}
+#cursor{position:absolute;width:10px;height:10px;background:yellow;border-radius:50%;pointer-events:none;display:none;}
+#startBtn{position:absolute;top:30%;left:50%;transform:translate(-50%,-50%);font-size:1.5em;padding:1em 2em;}
+#difficultyButtons{position:absolute;top:40%;left:50%;transform:translateX(-50%);display:none;text-align:center;gap:0.5em;}
+#difficultyButtons button{font-size:1.2em;padding:0.5em 1em;margin:0.2em;}
+#instructions, #options{position:absolute;top:55%;left:50%;transform:translateX(-50%);width:90%;max-width:600px;font-size:0.95em;line-height:1.4;color:#ccc;text-align:left;}
+#speechOverlay{position:absolute;bottom:20px;width:100%;text-align:center;color:cyan;pointer-events:none;}
+#statusOverlay{position:absolute;top:10px;left:10px;color:lime;}
+details summary{cursor:pointer;outline:none;}
+#timeMinutes{display:none;}
+</style>
+</head>
+<body>
+<div id="game" tabindex="0"></div>
+<div id="speechOverlay"></div>
+<div id="statusOverlay"></div>
+<button id="startBtn">Start Game</button>
+<details id="instructions">
+  <summary>Instructions</summary>
+  <div>
+    <strong>Objective:</strong> Score goals against the computer opponent by hitting the puck into their goal while defending your own.<br><br>
+    <strong>Starting the game:</strong> Press <strong>Start Game</strong> (mouse, tap, or <strong>Enter</strong> key).<br>
+    After that, click or tap one of the difficulty buttons that appear: Easy, Medium, or Hard.<br><br>
+    <strong>Movement and interaction:</strong><br>
+    <strong>Keyboard:</strong> Arrow keys to move the mallet (hold Shift for faster movement). To serve or place the puck, press Space to take it out (if after goal), use WASD to position it (Shift for faster), and Space to place it.<br>
+    <strong>Touch/Pointer:</strong> Double-tap to take the puck out (if after goal). Move your finger to position the puck and lift to place it. For the mallet, tap to jump it to a new position or drag to move it continuously. To hit the puck, drag the mallet into it with speed, as tapping places it without momentum.<br><br>
+    <strong>Gameplay:</strong> The player starts first. The mallet movement is limited to your half of the table and within arm's reach for realism. The puck bounces off edges with realistic physics, and may fly off if hit too hard. All events are indicated by spatial audio sounds.<br><br>
+    <strong>Scoring:</strong> Score a goal by getting the puck into the opponent's goal. The game ends when someone reaches the score to win or time runs out (if enabled).<br><br>
+    <strong>Difficulty details:</strong><br>
+    <strong>Easy:</strong> Slow and less accurate opponent.<br>
+    <strong>Medium:</strong> Moderate speed and accuracy.<br>
+    <strong>Hard:</strong> Fast and precise opponent with bounce prediction.
+  </div>
+</details>
+<details id="options">
+  <summary>Options</summary>
+  <div>
+    <label><input type="checkbox" id="toggleAudio" checked> Audio</label><br>
+    <label><input type="checkbox" id="toggleVisuals"> Visuals</label><br>
+    <label><input type="checkbox" id="toggleHaptics" checked> Haptics</label><br>
+    <label><input type="checkbox" id="toggleSpeech" checked> Speech</label><br>
+    <label>Score to win: <select id="scoreToWin"><option>none</option><option>5</option><option selected>7</option><option>10</option></select></label><br>
+    <label><input type="checkbox" id="timeLimit"> Time limit</label> <input type="number" id="timeMinutes" value="3" min="1"> minutes
+  </div>
+</details>
+<div id="difficultyButtons">
+  <button onclick="startGame('easy')">Easy</button>
+  <button onclick="startGame('medium')">Medium</button>
+  <button onclick="startGame('hard')">Hard</button>
+</div>
+<script>
+/* -------------------- Audio -------------------- */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+audioCtx.listener.setPosition(0, 0.5, 0.5);
+audioCtx.listener.setOrientation(0, 0, -1, 0, 1, 0);
+let audioUnlocked = false;
+function unlockAudio() { if (!audioUnlocked) { audioCtx.resume(); audioUnlocked = true; } }
 
+const soundFiles = {
+  'puck_slide': 'puck_slide.wav',
+  'puck_hit_edge_hard': 'puck_hit_edge_hard.wav',
+  'puck_hit_edge_medium': 'puck_hit_edge_medium.wav',
+  'puck_hit_edge_slow': 'puck_hit_edge_slow.wav',
+  'mallet_edge': 'mallet_edge.wav',
+  'mallet_slide': 'mallet_slide.wav',
+  'mallet_tap': 'mallet_tap.wav',
+  'mallet_hit_puck': 'mallet_hit_puck.wav',
+  'puck_on_table': 'puck_on_table.wav',
+  'puck_out_of_table': 'puck_out_of_table.wav',
+  'score_goal': 'score_goal.wav',
+  'take_puck_out_of_goal': 'take_puck_out_of_goal.wav',
+  'fan': 'fan.opus',
+  'ambience': 'ambience.opus'
+};
+
+const soundBuffers = {};
+async function loadSounds() {
+  for (const [name, file] of Object.entries(soundFiles)) {
+    try {
+      const response = await fetch(file);
+      if (!response.ok) throw new Error(`Failed to fetch ${file}`);
+      const arrayBuffer = await response.arrayBuffer();
+      soundBuffers[name] = await audioCtx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+      console.error(`Error loading sound ${name}:`, e);
+    }
+  }
+}
+
+function playSound(name, x = 0, z = 0, loop = false, volume = 0.25) {
+  if (!audioUnlocked || !document.getElementById("toggleAudio").checked || !soundBuffers[name]) return null;
+  const source = audioCtx.createBufferSource();
+  source.buffer = soundBuffers[name];
+  const g = audioCtx.createGain();
+  const p = audioCtx.createPanner();
+  p.panningModel = 'HRTF';
+  p.distanceModel = 'inverse';
+  p.refDistance = 0.5;
+  p.maxDistance = 10;
+  p.rolloffFactor = 1;
+  p.positionX.value = x;
+  p.positionZ.value = z;
+  if (name === 'fan') {
+    p.positionY.value = -0.5;
+    p.positionX.value = 0;
+    p.positionZ.value = midline;
+    volume = 0.15;
+  } else if (name === 'ambience') {
+    p.positionY.value = 0;
+    volume = 0.15;
+  } else {
+    p.positionY.value = 0;
+  }
+  g.gain.value = volume;
+  source.connect(g);
+  g.connect(p);
+  p.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  if (loop) {
+    source.loop = true;
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(volume, now + 0.1);
+  }
+  source.start(now);
+  if (!loop) {
+    source.stop(now + source.buffer.duration);
+  }
+  return loop ? { source, g, p } : null;
+}
+
+function stopLoop(loopObj) {
+  if (!loopObj) return;
+  const now = audioCtx.currentTime;
+  loopObj.g.gain.linearRampToValueAtTime(0, now + 0.1);
+  setTimeout(() => loopObj.source.stop(), 110);
+}
+
+/* -------------------- Speech -------------------- */
+const speechOverlay = document.getElementById("speechOverlay");
+function speak(t, onEnd) {
+  if (!("speechSynthesis" in window) || !document.getElementById("toggleSpeech").checked) {
+    speechSynthesis.cancel();
+    speechOverlay.textContent = "";
+    if (onEnd) setTimeout(onEnd, 0);
+    return;
+  }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(t);
+  u.onend = () => { speechOverlay.textContent = ""; if (onEnd) onEnd(); };
+  speechSynthesis.speak(u);
+  speechOverlay.textContent = t;
+}
+
+/* -------------------- State -------------------- */
+const game = document.getElementById("game");
+const startBtn = document.getElementById("startBtn");
+const statusOverlay = document.getElementById("statusOverlay");
+const instructions = document.getElementById("instructions");
+const options = document.getElementById("options");
+const difficultyButtons = document.getElementById("difficultyButtons");
+const timeLimitCheck = document.getElementById('timeLimit');
+const timeMinutes = document.getElementById('timeMinutes');
+timeLimitCheck.addEventListener('change', () => { timeMinutes.style.display = timeLimitCheck.checked ? 'inline' : 'none'; });
+let difficulty, scoreToWin, timeLeft, playerScore = 0, opponentScore = 0;
+let state = "menu";
+let serveTurn = 'player';
+let isAfterGoal = false;
+let lastTouch = null;
+let puck = { x: 0, z: 0, vx: 0, vz: 0, radius: 0.03175 };
+let playerMallet = { x: 0, z: 0.5, vx: 0, vz: 0, radius: 0.05 };
+let aiMallet = { x: 0, z: 1.63, vx: 0, vz: 0, radius: 0.05 };
+const table = { width: 1.22, length: 2.13, goalWidth: 0.3 };
+const midline = table.length / 2;
+const playerBase = { x: 0, z: 0.5 };
+const aiBase = { x: 0, z: table.length - 0.5 };
+const reach = 0.85;
+const friction = 0.999;
+const flyOffThreshold = 15;
+const EDGE_COOLDOWN = 80;
+let lastEdgeTime = 0;
+let cursorPos = { x: 0, z: 0.5 };
+let keys = {};
+let spacePressed = false;
+let isPointerDown = false;
+let targetPos = { x: 0, z: 0 };
+let lastTap = 0;
+const TAP_INTERVAL = 400;
+let puckSlideLoop = null;
+let playerMalletSlideLoop = null;
+let aiMalletSlideLoop = null;
+let ambienceLoop = null;
+let fanLoop = null;
+let lastTime = 0;
+let canvas = null;
+let ctx = null;
+let aiMaxSpeed, aiError, aiPredictBounces;
+let timerInterval = null;
+let restartCooldown = false;
+const RESTART_COOLDOWN_MS = 1000;
+
+function updateStatus() {
+  let status = `Player: ${playerScore} - Opponent: ${opponentScore}`;
+  if (timeLeft < Infinity) status += ` | Time: ${Math.floor(timeLeft / 60)}:${Math.floor(timeLeft % 60).toString().padStart(2, '0')}`;
+  statusOverlay.textContent = status;
+}
+
+function screenToTable(clientX, clientY) {
+  const x = (clientX / innerWidth) * table.width - table.width / 2;
+  const z = table.length - (clientY / innerHeight) * table.length;
+  return { x, z };
+}
+
+function tableToScreen(x, z) {
+  const screenX = (x + table.width / 2) / table.width * innerWidth;
+  const screenY = innerHeight - (z / table.length * innerHeight);
+  return { screenX, screenY };
+}
+
+function distance(a, b) {
+  const dx = a.x - b.x;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+function clampPos(pos, base, isPlayer) {
+  let clamped = false;
+  const bdx = pos.x - base.x;
+  const bdz = pos.z - base.z;
+  let bdist = Math.sqrt(bdx * bdx + bdz * bdz);
+  if (bdist > reach) {
+    const ratio = reach / bdist;
+    pos.x = base.x + bdx * ratio;
+    pos.z = base.z + bdz * ratio;
+    clamped = true;
+  }
+  const halfW = table.width / 2 - puck.radius;
+  if (pos.x < -halfW) { pos.x = -halfW; clamped = true; }
+  if (pos.x > halfW) { pos.x = halfW; clamped = true; }
+  if (isPlayer) {
+    if (pos.z > midline) { pos.z = midline; clamped = true; }
+    if (pos.z < 0) { pos.z = 0; clamped = true; }
+  } else {
+    if (pos.z < midline) { pos.z = midline; clamped = true; }
+    if (pos.z > table.length) { pos.z = table.length; clamped = true; }
+  }
+  return clamped;
+}
+
+function collideMalletPuck(mallet, puck) {
+  const dx = puck.x - mallet.x;
+  const dz = puck.z - mallet.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist > mallet.radius + puck.radius) return false;
+  const overlap = mallet.radius + puck.radius - dist;
+  const nx = dx / dist;
+  const nz = dz / dist;
+  mallet.x -= nx * overlap / 2;
+  mallet.z -= nz * overlap / 2;
+  puck.x += nx * overlap / 2;
+  puck.z += nz * overlap / 2;
+  const rvx = puck.vx - mallet.vx;
+  const rvz = puck.vz - mallet.vz;
+  const dot = rvx * nx + rvz * nz;
+  if (dot > 0) return false;
+  const imp = dot;
+  mallet.vx -= imp * nx;
+  mallet.vz -= imp * nz;
+  puck.vx += imp * nx;
+  puck.vz += imp * nz;
+  return true;
+}
+
+function predictImpact(targetZ, withBounces) {
+  let px = puck.x, pz = puck.z, pvx = puck.vx, pvz = puck.vz;
+  if (pvz <= 0) return 0;
+  if (!withBounces) {
+    const t = (targetZ - pz) / pvz;
+    return px + pvx * t;
+  }
+  const dt = (targetZ - pz) / pvz / 100;
+  for (let i = 0; i < 100; i++) {
+    px += pvx * dt;
+    pz += pvz * dt;
+    const left = -table.width / 2 + puck.radius;
+    const right = table.width / 2 - puck.radius;
+    if (px < left) { px = 2 * left - px; pvx = -pvx; }
+    if (px > right) { px = 2 * right - px; pvx = -pvx; }
+  }
+  return px;
+}
+
+function gameLoop(now) {
+  if (state !== 'playing' && state !== 'placing_puck') {
+    lastTime = now;
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  if (timeLeft < Infinity) {
+    timeLeft -= dt;
+    updateStatus();
+    if (timeLeft <= 0) {
+      endGame();
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+  }
+  // Update puck
+  puck.x += puck.vx * dt;
+  puck.z += puck.vz * dt;
+  const speed = Math.sqrt(puck.vx * puck.vx + puck.vz * puck.vz);
+  puck.vx *= Math.pow(friction, dt * 60);
+  puck.vz *= Math.pow(friction, dt * 60);
+  // Wall collisions
+  const left = -table.width / 2 + puck.radius;
+  const right = table.width / 2 - puck.radius;
+  let hitSound = null;
+  if (puck.x < left) {
+    puck.x = left;
+    puck.vx = -puck.vx;
+    if (speed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
+      handleFlyOff();
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+    hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+  } else if (puck.x > right) {
+    puck.x = right;
+    puck.vx = -puck.vx;
+    if (speed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
+      handleFlyOff();
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+    hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+  }
+  if (puck.z < 0) {
+    if (Math.abs(puck.x) < table.goalWidth / 2) {
+      handleGoal('opponent');
+      requestAnimationFrame(gameLoop);
+      return;
+    } else {
+      puck.z = 0;
+      puck.vz = -puck.vz;
+      if (speed > flyOffThreshold) {
+        handleFlyOff();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+    }
+  } else if (puck.z > table.length) {
+    if (Math.abs(puck.x) < table.goalWidth / 2) {
+      handleGoal('player');
+      requestAnimationFrame(gameLoop);
+      return;
+    } else {
+      puck.z = table.length;
+      puck.vz = -puck.vz;
+      if (speed > flyOffThreshold) {
+        handleFlyOff();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+    }
+  }
+  if (hitSound) {
+    playSound(hitSound, puck.x, puck.z);
+    if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(40);
+  }
+  // Mallet collisions
+  if (state === 'playing') {
+    let oldPlayerX = playerMallet.x, oldPlayerZ = playerMallet.z;
+    let oldAiX = aiMallet.x, oldAiZ = aiMallet.z;
+    // Player input
+    if (isPointerDown) {
+      playerMallet.x = targetPos.x;
+      playerMallet.z = targetPos.z;
+      const clamped = clampPos(playerMallet, playerBase, true);
+      if (clamped && now - lastEdgeTime > EDGE_COOLDOWN) {
+        playSound('mallet_edge', playerMallet.x, playerMallet.z);
+        lastEdgeTime = now;
+        if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(40);
+      }
+    }
+    let keySpeed = (keys['Shift'] ? 4 : 2) * dt;
+    if (keys['ArrowLeft']) playerMallet.x -= keySpeed;
+    if (keys['ArrowRight']) playerMallet.x += keySpeed;
+    if (keys['ArrowUp']) playerMallet.z -= keySpeed;
+    if (keys['ArrowDown']) playerMallet.z += keySpeed;
+    const clampedKey = clampPos(playerMallet, playerBase, true);
+    if (clampedKey && now - lastEdgeTime > EDGE_COOLDOWN) {
+      playSound('mallet_edge', playerMallet.x, playerMallet.z);
+      lastEdgeTime = now;
+      if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(40);
+    }
+    playerMallet.vx = (playerMallet.x - oldPlayerX) / dt || 0;
+    playerMallet.vz = (playerMallet.z - oldPlayerZ) / dt || 0;
+    // AI
+    let aiTargetX = 0, aiTargetZ = aiBase.z;
+    if (puck.z > midline || puck.vz > 0) {
+      let predictZ = midline + 0.5;
+      aiTargetX = predictImpact(predictZ, aiPredictBounces);
+      aiTargetX += (Math.random() * 2 - 1) * aiError;
+      aiTargetZ = predictZ;
+      if (puck.z > midline && speed < 0.1) {
+        aiTargetZ = puck.z - 0.2;
+        aiTargetX = puck.x + (Math.random() * 0.2 - 0.1);
+      }
+    }
+    const dx = aiTargetX - aiMallet.x;
+    const dz = aiTargetZ - aiMallet.z;
+    const aiDist = Math.sqrt(dx * dx + dz * dz);
+    if (aiDist > 0) {
+      const aiDirX = dx / aiDist;
+      const aiDirZ = dz / aiDist;
+      aiMallet.x += aiDirX * aiMaxSpeed * dt;
+      aiMallet.z += aiDirZ * aiMaxSpeed * dt;
+      clampPos(aiMallet, aiBase, false);
+    }
+    aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
+    aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
+    // Collisions
+    if (puck.z < midline && collideMalletPuck(playerMallet, puck)) {
+      lastTouch = 'player';
+      playSound('mallet_hit_puck', puck.x, puck.z);
+      if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(50);
+    }
+    if (puck.z > midline && collideMalletPuck(aiMallet, puck)) {
+      lastTouch = 'opponent';
+      playSound('mallet_hit_puck', puck.x, puck.z);
+    }
+  } else if (state === 'placing_puck') {
+    if (serveTurn === 'player') {
+      if (isPointerDown) {
+        cursorPos.x = targetPos.x;
+        cursorPos.z = targetPos.z;
+        clampPos(cursorPos, playerBase, true);
+      }
+      let keySpeed = (keys['Shift'] ? 4 : 2) * dt;
+      if (keys['A']) cursorPos.x -= keySpeed;
+      if (keys['D']) cursorPos.x += keySpeed;
+      if (keys['W']) cursorPos.z -= keySpeed;
+      if (keys['S']) cursorPos.z += keySpeed;
+      const clamped = clampPos(cursorPos, playerBase, true);
+      if (clamped && now - lastEdgeTime > EDGE_COOLDOWN) {
+        playSound('mallet_edge', cursorPos.x, cursorPos.z);
+        lastEdgeTime = now;
+      }
+    }
+  }
+  // Audio loops
+  if (speed > 0.1) {
+    if (!puckSlideLoop) puckSlideLoop = playSound('puck_slide', puck.x, puck.z, true, speed / 5);
+    else {
+      puckSlideLoop.p.positionX.value = puck.x;
+      puckSlideLoop.p.positionZ.value = puck.z;
+      puckSlideLoop.g.gain.value = speed / 5;
+    }
+  } else if (puckSlideLoop) {
+    stopLoop(puckSlideLoop);
+    puckSlideLoop = null;
+  }
+  const playerMalletSpeed = Math.sqrt(playerMallet.vx ** 2 + playerMallet.vz ** 2);
+  if (playerMalletSpeed > 0.1) {
+    if (!playerMalletSlideLoop) playerMalletSlideLoop = playSound('mallet_slide', playerMallet.x, playerMallet.z, true, playerMalletSpeed / 5);
+    else {
+      playerMalletSlideLoop.p.positionX.value = playerMallet.x;
+      playerMalletSlideLoop.p.positionZ.value = playerMallet.z;
+      playerMalletSlideLoop.g.gain.value = playerMalletSpeed / 5;
+    }
+  } else if (playerMalletSlideLoop) {
+    stopLoop(playerMalletSlideLoop);
+    playerMalletSlideLoop = null;
+  }
+  const aiMalletSpeed = Math.sqrt(aiMallet.vx ** 2 + aiMallet.vz ** 2);
+  if (aiMalletSpeed > 0.1) {
+    if (!aiMalletSlideLoop) aiMalletSlideLoop = playSound('mallet_slide', aiMallet.x, aiMallet.z, true, aiMalletSpeed / 5);
+    else {
+      aiMalletSlideLoop.p.positionX.value = aiMallet.x;
+      aiMalletSlideLoop.p.positionZ.value = aiMallet.z;
+      aiMalletSlideLoop.g.gain.value = aiMalletSpeed / 5;
+    }
+  } else if (aiMalletSlideLoop) {
+    stopLoop(aiMalletSlideLoop);
+    aiMalletSlideLoop = null;
+  }
+  // Visuals
+  if (canvas) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const { screenX: tableLeft, screenY: tableTop } = tableToScreen(-table.width / 2, 0);
+    const { screenX: tableRight, screenY: tableBottom } = tableToScreen(table.width / 2, table.length);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(tableLeft, tableTop, tableRight - tableLeft, tableBottom - tableTop);
+    const midlineY = tableToScreen(0, midline).screenY;
+    ctx.beginPath();
+    ctx.moveTo(tableLeft, midlineY);
+    ctx.lineTo(tableRight, midlineY);
+    ctx.stroke();
+    // Goals
+    const goalHalf = table.goalWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(tableToScreen(-goalHalf, 0).screenX, tableTop);
+    ctx.lineTo(tableToScreen(goalHalf, 0).screenX, tableTop);
+    ctx.moveTo(tableToScreen(-goalHalf, table.length).screenX, tableBottom);
+    ctx.lineTo(tableToScreen(goalHalf, table.length).screenX, tableBottom);
+    ctx.stroke();
+    // Puck
+    const puckScreen = tableToScreen(puck.x, puck.z);
+    ctx.beginPath();
+    ctx.arc(puckScreen.screenX, puckScreen.screenY, puck.radius / table.width * innerWidth, 0, 2 * Math.PI);
+    ctx.fillStyle = '#f00';
+    ctx.fill();
+    // Mallets
+    const playerScreen = tableToScreen(playerMallet.x, playerMallet.z);
+    ctx.beginPath();
+    ctx.arc(playerScreen.screenX, playerScreen.screenY, playerMallet.radius / table.width * innerWidth, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0f0';
+    ctx.fill();
+    const aiScreen = tableToScreen(aiMallet.x, aiMallet.z);
+    ctx.beginPath();
+    ctx.arc(aiScreen.screenX, aiScreen.screenY, aiMallet.radius / table.width * innerWidth, 0, 2 * Math.PI);
+    ctx.fillStyle = '#00f';
+    ctx.fill();
+    if (state === 'placing_puck') {
+      const cursorScreen = tableToScreen(cursorPos.x, cursorPos.z);
+      ctx.beginPath();
+      ctx.arc(cursorScreen.screenX, cursorScreen.screenY, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ff0';
+      ctx.fill();
+    }
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+function handleGoal(scorer) {
+  const concederPosZ = scorer === 'player' ? table.length : 0;
+  playSound('score_goal', 0, concederPosZ);
+  if (scorer === 'player') {
+    playerScore++;
+    serveTurn = 'opponent';
+    speak("Goal! You score.");
+  } else {
+    opponentScore++;
+    serveTurn = 'player';
+    speak("Goal! Opponent scores.");
+  }
+  updateStatus();
+  isAfterGoal = true;
+  lastTouch = null;
+  if (playerScore >= scoreToWin || opponentScore >= scoreToWin) {
+    endGame();
+    return;
+  }
+  setupServe();
+}
+
+function handleFlyOff() {
+  playSound('puck_out_of_table', puck.x, puck.z);
+  serveTurn = lastTouch === 'player' ? 'opponent' : 'player';
+  isAfterGoal = false;
+  lastTouch = null;
+  setupServe();
+}
+
+function setupServe() {
+  puck.vx = 0;
+  puck.vz = 0;
+  playerMallet.x = playerBase.x;
+  playerMallet.z = playerBase.z;
+  aiMallet.x = aiBase.x;
+  aiMallet.z = aiBase.z;
+  if (serveTurn === 'player') {
+    state = 'ready_to_take_out';
+    speak("Your serve. Press space or double-tap to take the puck out.");
+  } else {
+    state = 'ready_to_take_out';
+    setTimeout(() => {
+      if (state !== 'ready_to_take_out') return;
+      if (isAfterGoal) playSound('take_puck_out_of_goal', 0, table.length);
+      const angle = Math.random() * Math.PI - Math.PI / 2;
+      const dist = Math.random() * reach * 0.8 + 0.2;
+      cursorPos.x = aiBase.x + Math.cos(angle) * dist;
+      cursorPos.z = aiBase.z + Math.sin(angle) * dist;
+      clampPos(cursorPos, aiBase, false);
+      puck.x = cursorPos.x;
+      puck.z = cursorPos.z;
+      puck.vx = 0;
+      puck.vz = 0;
+      playSound('puck_on_table', puck.x, puck.z);
+      state = 'playing';
+    }, 2000);
+  }
+}
+
+function endGame() {
+  state = 'menu';
+  stopLoop(puckSlideLoop); puckSlideLoop = null;
+  stopLoop(playerMalletSlideLoop); playerMalletSlideLoop = null;
+  stopLoop(aiMalletSlideLoop); aiMalletSlideLoop = null;
+  stopLoop(ambienceLoop); ambienceLoop = null;
+  stopLoop(fanLoop); fanLoop = null;
+  if (canvas) game.removeChild(canvas); canvas = null;
+  startBtn.style.display = 'block';
+  instructions.style.display = 'block';
+  options.style.display = 'block';
+  difficultyButtons.style.display = 'none';
+  let message = `Game over. Player: ${playerScore} - Opponent: ${opponentScore}. `;
+  if (playerScore > opponentScore) message += 'You win!';
+  else if (opponentScore > playerScore) message += 'Opponent wins.';
+  else message += 'Tie.';
+  speak(message);
+  restartCooldown = true;
+  setTimeout(() => { restartCooldown = false; }, RESTART_COOLDOWN_MS);
+}
+
+startBtn.onclick = () => {
+  unlockAudio();
+  loadSounds();
+  startBtn.style.display = "none";
+  difficultyButtons.style.display = "block";
+  instructions.style.display = "block";
+  options.style.display = "block";
+  speak("Select a difficulty to start the game.");
+};
+
+function startGame(level) {
+  if (restartCooldown) return;
+  difficulty = level;
+  switch (level) {
+    case 'easy': aiMaxSpeed = 1; aiError = 0.2; aiPredictBounces = false; break;
+    case 'medium': aiMaxSpeed = 2; aiError = 0.1; aiPredictBounces = false; break;
+    case 'hard': aiMaxSpeed = 3; aiError = 0; aiPredictBounces = true; break;
+  }
+  scoreToWin = document.getElementById('scoreToWin').value === 'none' ? Infinity : parseInt(document.getElementById('scoreToWin').value);
+  timeLeft = timeLimitCheck.checked ? parseInt(timeMinutes.value) * 60 : Infinity;
+  playerScore = 0;
+  opponentScore = 0;
+  serveTurn = 'player';
+  isAfterGoal = true;
+  lastTouch = null;
+  playerMallet.x = playerBase.x; playerMallet.z = playerBase.z;
+  aiMallet.x = aiBase.x; aiMallet.z = aiBase.z;
+  difficultyButtons.style.display = "none";
+  instructions.style.display = "none";
+  options.style.display = "none";
+  updateStatus();
+  ambienceLoop = playSound('ambience', 0, midline, true);
+  fanLoop = playSound('fan', 0, midline, true);
+  if (document.getElementById("toggleVisuals").checked) {
+    canvas = document.createElement("canvas");
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+    game.appendChild(canvas);
+    ctx = canvas.getContext("2d");
+  }
+  setupServe();
+  lastTime = performance.now();
+  requestAnimationFrame(gameLoop);
+  speak(`${level} mode. Game start.`);
+}
+
+/* -------------------- Inputs -------------------- */
+document.addEventListener("keydown", e => {
+  keys[e.key] = true;
+  if (e.key === 'Enter' && state === 'menu') startBtn.click();
+  if (e.key === ' ' && !spacePressed) {
+    spacePressed = true;
+    if (state === 'ready_to_take_out') {
+      if (isAfterGoal) playSound('take_puck_out_of_goal', 0, serveTurn === 'player' ? 0 : table.length);
+      cursorPos.x = serveTurn === 'player' ? playerBase.x : aiBase.x;
+      cursorPos.z = serveTurn === 'player' ? playerBase.z : aiBase.z;
+      state = 'placing_puck';
+    } else if (state === 'placing_puck' && serveTurn === 'player') {
+      puck.x = cursorPos.x;
+      puck.z = cursorPos.z;
+      puck.vx = 0;
+      puck.vz = 0;
+      playSound('puck_on_table', puck.x, puck.z);
+      state = 'playing';
+    }
+  }
+});
+document.addEventListener("keyup", e => {
+  delete keys[e.key];
+  if (e.key === ' ') spacePressed = false;
+});
+
+game.addEventListener("pointerdown", e => {
+  unlockAudio();
+  game.setPointerCapture(e.pointerId);
+  const { x, z } = screenToTable(e.clientX, e.clientY);
+  targetPos = { x, z };
+  const now = Date.now();
+  if (now - lastTap < TAP_INTERVAL && state === 'ready_to_take_out' && serveTurn === 'player') {
+    if (isAfterGoal) playSound('take_puck_out_of_goal', 0, 0);
+    cursorPos = { x: playerBase.x, z: playerBase.z };
+    state = 'placing_puck';
+    cursorPos.x = x;
+    cursorPos.z = z;
+    clampPos(cursorPos, playerBase, true);
+    isPointerDown = true;
+  } else if (state === 'placing_puck' && serveTurn === 'player') {
+    cursorPos.x = x;
+    cursorPos.z = z;
+    clampPos(cursorPos, playerBase, true);
+    isPointerDown = true;
+  } else if (state === 'playing') {
+    const oldX = playerMallet.x, oldZ = playerMallet.z;
+    playerMallet.x = x;
+    playerMallet.z = z;
+    clampPos(playerMallet, playerBase, true);
+    playerMallet.vx = 0;
+    playerMallet.vz = 0;
+    isPointerDown = true;
+    if (playerMallet.x !== oldX || playerMallet.z !== oldZ) playSound('mallet_tap', playerMallet.x, playerMallet.z);
+  }
+  lastTap = now;
+});
+game.addEventListener("pointermove", e => {
+  const { x, z } = screenToTable(e.clientX, e.clientY);
+  targetPos = { x, z };
+});
+game.addEventListener("pointerup", () => {
+  isPointerDown = false;
+  if (state === 'placing_puck' && serveTurn === 'player') {
+    puck.x = cursorPos.x;
+    puck.z = cursorPos.z;
+    puck.vx = 0;
+    puck.vz = 0;
+    playSound('puck_on_table', puck.x, puck.z);
+    state = 'playing';
+  } else if (state === 'playing') {
+    playerMallet.vx = 0;
+    playerMallet.vz = 0;
+  }
+});
+</script>
+</body>
+</html>
