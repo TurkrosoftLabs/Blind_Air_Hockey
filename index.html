@@ -589,7 +589,6 @@ function setupServe() {
   } else {
     state = 'ready_to_take_out';
     setTimeout(() => {
-      if (state !== 'ready_to_take_out') return;
       if (isAfterGoal) playSound('take_puck_out_of_goal', 0, table.length);
       const angle = Math.random() * Math.PI - Math.PI / 2;
       const dist = Math.random() * reach * 0.8 + 0.2;
