@@ -31,7 +31,7 @@ details summary{cursor:pointer;outline:none;}
     After that, click or tap one of the difficulty buttons that appear: Easy, Medium, or Hard.<br><br>
     <strong>Movement and interaction:</strong><br>
     <strong>Keyboard:</strong> Arrow keys to move the mallet (hold Shift for faster movement). To serve or place the puck, press Space to take it out (if after goal), use WASD to position it (Shift for faster), and Space to place it.<br>
-    <strong>Touch/Pointer:</strong> Double-tap to take the puck out (if after goal). Move your finger to position the puck and lift to place it. For the mallet, tap to jump it to a new position or drag to move it continuously. To hit the puck, drag the mallet into it with speed, as tapping places it without momentum.<br><br>
+    <strong>Touch/Pointer:</strong> Double-tap to take the puck out (if after goal). Move your finger to position the puck and lift to place it. For the mallet, tap to jump it to a new position or drag to move it continuously.<br><br>
     <strong>Gameplay:</strong> The player starts first. The mallet movement is limited to your half of the table and within arm's reach for realism. The puck bounces off edges with realistic physics, and may fly off if hit too hard. All events are indicated by spatial audio sounds.<br><br>
     <strong>Scoring:</strong> Score a goal by getting the puck into the opponent's goal. The game ends when someone reaches the score to win or time runs out (if enabled).<br><br>
     <strong>Difficulty details:</strong><br>
@@ -59,8 +59,8 @@ details summary{cursor:pointer;outline:none;}
 <script>
 /* -------------------- Audio -------------------- */
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-audioCtx.listener.setPosition(0, 0.5, 0.5);
-audioCtx.listener.setOrientation(0, 0, -1, 0, 1, 0);
+audioCtx.listener.setPosition(0, 0.5, -0.5);
+audioCtx.listener.setOrientation(0, 0, 1, 0, 1, 0);
 let audioUnlocked = false;
 function unlockAudio() { if (!audioUnlocked) { audioCtx.resume(); audioUnlocked = true; } }
 
@@ -109,13 +109,13 @@ function playSound(name, x = 0, z = 0, loop = false, volume = 0.25) {
   p.positionX.value = x;
   p.positionZ.value = z;
   if (name === 'fan') {
-    p.positionY.value = -0.5;
+    p.positionY.value = -0.5; // From underneath the table
     p.positionX.value = 0;
-    p.positionZ.value = midline;
-    volume = 0.15;
+    p.positionZ.value = soundFiles.table ? soundFiles.table.length / 2 : 1.065; // Center
+    volume = 0.05;
   } else if (name === 'ambience') {
     p.positionY.value = 0;
-    volume = 0.15;
+    volume = 0.05;
   } else {
     p.positionY.value = 0;
   }
@@ -181,7 +181,7 @@ const table = { width: 1.22, length: 2.13, goalWidth: 0.3 };
 const midline = table.length / 2;
 const playerBase = { x: 0, z: 0.5 };
 const aiBase = { x: 0, z: table.length - 0.5 };
-const reach = 0.85;
+const reach = 0.7;
 const friction = 0.999;
 const flyOffThreshold = 15;
 const EDGE_COOLDOWN = 80;
@@ -214,13 +214,13 @@ function updateStatus() {
 
 function screenToTable(clientX, clientY) {
   const x = (clientX / innerWidth) * table.width - table.width / 2;
-  const z = table.length - (clientY / innerHeight) * table.length;
+  const z = (clientY / innerHeight) * table.length;
   return { x, z };
 }
 
 function tableToScreen(x, z) {
   const screenX = (x + table.width / 2) / table.width * innerWidth;
-  const screenY = innerHeight - (z / table.length * innerHeight);
+  const screenY = z / table.length * innerHeight;
   return { screenX, screenY };
 }
 
@@ -431,7 +431,7 @@ function gameLoop(now) {
     aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
     aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
     // Collisions
-    if (puck.z < midline && collideMalletPuck(playerMallet, puck)) {
+if (puck.z < midline + puck.radius && collideMalletPuck(playerMallet, puck)) {
       lastTouch = 'player';
       playSound('mallet_hit_puck', puck.x, puck.z);
       if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(50);
@@ -742,6 +742,7 @@ game.addEventListener("pointerup", () => {
     puck.vx = 0;
     puck.vz = 0;
     playSound('puck_on_table', puck.x, puck.z);
+    isPointerDown = false;
     state = 'playing';
   } else if (state === 'playing') {
     playerMallet.vx = 0;
