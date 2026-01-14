@@ -661,17 +661,6 @@ startBtn.onclick = async () => {
   speak("Select a difficulty to start the game.");
 };
 
-startBtn.addEventListener('touchstart', async function(e) {
-  e.preventDefault();
-  unlockAudio();
-  await loadSounds();
-  startBtn.style.display = "none";
-  difficultyButtons.style.display = "block";
-  instructions.style.display = "block";
-  options.style.display = "block";
-  speak("Select a difficulty to start the game.");
-}, { passive: false });
-
 function startGame(level) {
   if (restartCooldown) return;
   difficulty = level;
