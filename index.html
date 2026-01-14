@@ -651,9 +651,9 @@ function endGame() {
   setTimeout(() => { restartCooldown = false; }, RESTART_COOLDOWN_MS);
 }
 
-startBtn.onclick = () => {
+startBtn.onclick = async () => {
   unlockAudio();
-  loadSounds();
+  await loadSounds();
   startBtn.style.display = "none";
   difficultyButtons.style.display = "block";
   instructions.style.display = "block";
@@ -661,16 +661,16 @@ startBtn.onclick = () => {
   speak("Select a difficulty to start the game.");
 };
 
-startBtn.addEventListener('touchstart', function(e) {
-  e.preventDefault();           // prevents any weird double-fire or interference
+startBtn.addEventListener('touchstart', async function(e) {
+  e.preventDefault();
   unlockAudio();
-  loadSounds();
+  await loadSounds();
   startBtn.style.display = "none";
   difficultyButtons.style.display = "block";
   instructions.style.display = "block";
   options.style.display = "block";
   speak("Select a difficulty to start the game.");
-}, { passive: false });         // passive:false is important for preventDefault to work
+}, { passive: false });
 
 function startGame(level) {
   if (restartCooldown) return;
