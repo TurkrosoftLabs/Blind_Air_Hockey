@@ -57,7 +57,6 @@ details summary{cursor:pointer;outline:none;}
   <button onclick="startGame('hard')">Hard</button>
 </div>
 <script>
-const table = { width: 1.22, length: 2.13, goalWidth: 0.3 };
 /* -------------------- Audio -------------------- */
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 audioCtx.listener.setPosition(0, 0.5, -0.5);
@@ -179,6 +178,7 @@ let lastTouch = null;
 let puck = { x: 0, z: 0, vx: 0, vz: 0, radius: 0.03175 };
 let playerMallet = { x: 0, z: 0.5, vx: 0, vz: 0, radius: 0.05 };
 let aiMallet = { x: 0, z: 1.63, vx: 0, vz: 0, radius: 0.05 };
+const table = { width: 1.22, length: 2.13, goalWidth: 0.3 };
 const midline = table.length / 2;
 const playerBase = { x: 0, z: 0.5 };
 const aiBase = { x: 0, z: table.length - 0.5 };
@@ -660,6 +660,17 @@ startBtn.onclick = async () => {
   options.style.display = "block";
   speak("Select a difficulty to start the game.");
 };
+
+startBtn.addEventListener('touchstart', async function(e) {
+  e.preventDefault();
+  unlockAudio();
+  await loadSounds();
+  startBtn.style.display = "none";
+  difficultyButtons.style.display = "block";
+  instructions.style.display = "block";
+  options.style.display = "block";
+  speak("Select a difficulty to start the game.");
+}, { passive: false });
 
 function startGame(level) {
   if (restartCooldown) return;
