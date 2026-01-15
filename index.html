@@ -186,8 +186,6 @@ let state = "menu";
 let serveTurn = 'player';
 let isAfterGoal = false;
 let serveJustStarted = false;
-let waitingForPlace = false;
-let justEnteredPlacing = false;
 let lastTouch = null;
 let puck = { x: 0, z: 0, vx: 0, vz: 0, radius: 0.03175 };
 let playerMallet = { x: 0, z: 0.5, vx: 0, vz: 0, radius: 0.05 };
@@ -792,19 +790,15 @@ game.addEventListener("pointermove", e => {
 });
 game.addEventListener("pointerup", () => {
   isPointerDown = false;
-if (state === 'placing_puck' && serveTurn === 'player') {
-  if (waitingForPlace) {
-    waitingForPlace = false;
-    return;
+  if (state === 'placing_puck' && serveTurn === 'player') {
+    puck.x = cursorPos.x;
+    puck.z = cursorPos.z;
+    puck.vx = 0;
+    puck.vz = 0;
+    playSound('puck_on_table', puck.x, puck.z);
+    serveJustStarted = true;
+    state = 'playing';
   }
-  puck.x = cursorPos.x;
-  puck.z = cursorPos.z;
-  puck.vx = 0;
-  puck.vz = 0;
-  playSound('puck_on_table', puck.x, puck.z);
-  serveJustStarted = true;
-  state = 'playing';
-}
   else if (state === 'playing') {
     playerMallet.vx = 0;
     playerMallet.vz = 0;
