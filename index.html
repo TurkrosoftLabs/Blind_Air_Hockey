@@ -186,6 +186,7 @@ let state = "menu";
 let serveTurn = 'player';
 let isAfterGoal = false;
 let serveJustStarted = false;
+let waitingForPlace = false;
 let justEnteredPlacing = false;
 let lastTouch = null;
 let puck = { x: 0, z: 0, vx: 0, vz: 0, radius: 0.03175 };
@@ -736,6 +737,7 @@ if (state === 'ready_to_take_out') {
   cursorPos.x = playerBase.x;
   cursorPos.z = playerBase.z;
   state = 'placing_puck';
+  waitingForPlace = true;
   justEnteredPlacing = true;
 }
 else if (state === 'placing_puck' && serveTurn === 'player') {
@@ -789,22 +791,19 @@ game.addEventListener("pointermove", e => {
 });
 game.addEventListener("pointerup", () => {
   isPointerDown = false;
-  if (state === 'placing_puck' && serveTurn === 'player') {
-    // Ignore the release that entered placing mode
-    if (justEnteredPlacing) {
-      justEnteredPlacing = false;
-      return;
-    }
-    // Now we actually place the puck
-    puck.x = cursorPos.x;
-    puck.z = cursorPos.z;
-    puck.vx = 0;
-    puck.vz = 0;
-    playSound('puck_on_table', puck.x, puck.z);
-    serveJustStarted = true;
-    state = 'playing';
-  isPointerDown = false;
+if (state === 'placing_puck' && serveTurn === 'player') {
+  if (waitingForPlace) {
+    waitingForPlace = false;
+    return;
   }
+  puck.x = cursorPos.x;
+  puck.z = cursorPos.z;
+  puck.vx = 0;
+  puck.vz = 0;
+  playSound('puck_on_table', puck.x, puck.z);
+  serveJustStarted = true;
+  state = 'playing';
+}
   else if (state === 'playing') {
     playerMallet.vx = 0;
     playerMallet.vz = 0;
