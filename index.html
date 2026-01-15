@@ -226,7 +226,7 @@ function updateStatus() {
 
 function screenToTable(clientX, clientY) {
   const x = (clientX / innerWidth) * table.width - table.width / 2;
-  const z = (clientY / innerHeight) * table.length;
+  const z = table.length - (clientY / innerHeight) * table.length;
   return { x, z };
 }
 
