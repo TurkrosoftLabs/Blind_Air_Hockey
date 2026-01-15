@@ -803,6 +803,7 @@ game.addEventListener("pointerup", () => {
     playSound('puck_on_table', puck.x, puck.z);
     serveJustStarted = true;
     state = 'playing';
+  isPointerDown = false;
   }
   else if (state === 'playing') {
     playerMallet.vx = 0;
