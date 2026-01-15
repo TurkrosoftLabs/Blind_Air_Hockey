@@ -71,7 +71,6 @@ audioCtx.listener.setPosition(0, 0.5, table.length + 0.5);
 audioCtx.listener.setOrientation(0, 0, -1, 0, 1, 0);
 let audioUnlocked = false;
 function unlockAudio() { if (!audioUnlocked) { audioCtx.resume(); audioUnlocked = true; } }
-
 const soundFiles = {
   'puck_slide': 'puck_slide.wav',
   'puck_hit_edge_hard': 'puck_hit_edge_hard.wav',
@@ -88,7 +87,6 @@ const soundFiles = {
   'fan': 'fan.opus',
   'ambience': 'ambience.opus'
 };
-
 const soundBuffers = {};
 async function loadSounds() {
   for (const [name, file] of Object.entries(soundFiles)) {
@@ -102,7 +100,6 @@ async function loadSounds() {
     }
   }
 }
-
 function playSound(name, x = 0, z = 0, loop = false, volume = 0.25) {
   if (!audioUnlocked || !document.getElementById("toggleAudio").checked || !soundBuffers[name]) return null;
   const source = audioCtx.createBufferSource();
@@ -143,14 +140,12 @@ p.positionZ.value = table.length / 2;
   }
   return loop ? { source, g, p } : null;
 }
-
 function stopLoop(loopObj) {
   if (!loopObj) return;
   const now = audioCtx.currentTime;
   loopObj.g.gain.linearRampToValueAtTime(0, now + 0.1);
   setTimeout(() => loopObj.source.stop(), 110);
 }
-
 /* -------------------- Speech -------------------- */
 const speechOverlay = document.getElementById("speechOverlay");
 function speak(t, onEnd) {
@@ -159,18 +154,15 @@ function speak(t, onEnd) {
     if (onEnd) setTimeout(onEnd, 0);
     return;
   }
-
   const u = new SpeechSynthesisUtterance(t);
   u.onend = () => {
     speechOverlay.textContent = "";
     if (onEnd) onEnd();
   };
-
   speechSynthesis.cancel(); // keep this AFTER creating u
   speechSynthesis.speak(u);
   speechOverlay.textContent = t;
 }
-
 /* -------------------- State -------------------- */
 const game = document.getElementById("game");
 const startBtn = document.getElementById("startBtn");
@@ -217,31 +209,28 @@ let aiMaxSpeed, aiError, aiPredictBounces;
 let timerInterval = null;
 let restartCooldown = false;
 const RESTART_COOLDOWN_MS = 1000;
-
+let ignoreNextUpForPlace = false;
+let placeTapTimeout = null;
 function updateStatus() {
   let status = `Player: ${playerScore} - Opponent: ${opponentScore}`;
   if (timeLeft < Infinity) status += ` | Time: ${Math.floor(timeLeft / 60)}:${Math.floor(timeLeft % 60).toString().padStart(2, '0')}`;
   statusOverlay.textContent = status;
 }
-
 function screenToTable(clientX, clientY) {
   const x = (clientX / innerWidth) * table.width - table.width / 2;
   const z = (clientY / innerHeight) * table.length;
   return { x, z };
 }
-
 function tableToScreen(x, z) {
   const screenX = (x + table.width / 2) / table.width * innerWidth;
   const screenY = z / table.length * innerHeight;
   return { screenX, screenY };
 }
-
 function distance(a, b) {
   const dx = a.x - b.x;
   const dz = a.z - b.z;
   return Math.sqrt(dx * dx + dz * dz);
 }
-
 function clampPos(pos, base, isPlayer) {
   let clamped = false;
   const bdx = pos.x - base.x;
@@ -265,7 +254,6 @@ if (isPlayer) {
 }
   return clamped;
 }
-
 function collideMalletPuck(mallet, puck) {
   const dx = puck.x - mallet.x;
   const dz = puck.z - mallet.z;
@@ -289,7 +277,6 @@ function collideMalletPuck(mallet, puck) {
   puck.vz += imp * nz;
   return true;
 }
-
 function predictImpact(targetZ, withBounces) {
   let px = puck.x, pz = puck.z, pvx = puck.vx, pvz = puck.vz;
   const dz = targetZ - pz;
@@ -310,7 +297,6 @@ function predictImpact(targetZ, withBounces) {
   }
   return px;
 }
-
 function gameLoop(now) {
   if (state !== 'playing' && state !== 'placing_puck') {
     lastTime = now;
@@ -430,7 +416,6 @@ if (serveJustStarted && serveTurn === 'player') {
   aiMallet.vz = 0;
 } else {
   let aiTargetX = 0, aiTargetZ = aiBase.z;
-
 if (puck.z < midline && puck.vz < 0) {
   let predictZ = midline - 0.5;
   aiTargetX = predictImpact(predictZ, aiPredictBounces);
@@ -441,11 +426,9 @@ if (puck.z < midline && puck.vz < 0) {
     aiTargetX = puck.x + (Math.random() * 0.2 - 0.1);
   }
 }
-
   const dx = aiTargetX - aiMallet.x;
   const dz = aiTargetZ - aiMallet.z;
   const aiDist = Math.sqrt(dx * dx + dz * dz);
-
   if (aiDist > 0) {
     aiMallet.x += (dx / aiDist) * aiMaxSpeed * dt;
     aiMallet.z += (dz / aiDist) * aiMaxSpeed * dt;
@@ -502,6 +485,7 @@ if (aiMalletSpeed > 0.1) {
   stopLoop(aiMalletSlideLoop);
   aiMalletSlideLoop = null;
 }
+  } else if (state === 'placing_puck') {
     if (serveTurn === 'player') {
       if (isPointerDown) {
         cursorPos.x = targetPos.x;
@@ -570,7 +554,6 @@ if (aiMalletSpeed > 0.1) {
   }
   requestAnimationFrame(gameLoop);
 }
-
 function stopPuckMotion() {
   puck.vx = 0;
   puck.vz = 0;
@@ -579,7 +562,6 @@ function stopPuckMotion() {
     puckSlideLoop = null;
   }
 }
-
 function handleGoal(scorer) {
   serveJustStarted = false;
   stopPuckMotion();
@@ -603,7 +585,6 @@ const concederPosZ = scorer === 'player' ? 0 : table.length;
   }
   setupServe();
 }
-
 function handleFlyOff() {
   serveJustStarted = false;
   stopPuckMotion();
@@ -613,7 +594,6 @@ function handleFlyOff() {
   lastTouch = null;
   setupServe();
 }
-
 function setupServe() {
   stopPuckMotion();
   puck.vx = 0;
@@ -629,20 +609,16 @@ function setupServe() {
 state = 'ai_serving';
 setTimeout(() => {
   if (state !== 'ai_serving') return;
-
   if (isAfterGoal) playSound('take_puck_out_of_goal', 0, 0);
-
   puck.x = aiBase.x;
   puck.z = aiBase.z;
   puck.vx = 0;
   puck.vz = 0;
-
   playSound('puck_on_table', puck.x, puck.z);
   state = 'playing';
 }, 2000);
   }
 }
-
 function endGame() {
   state = 'menu';
   stopLoop(puckSlideLoop); puckSlideLoop = null;
@@ -663,10 +639,8 @@ function endGame() {
   restartCooldown = true;
   setTimeout(() => { restartCooldown = false; }, RESTART_COOLDOWN_MS);
 }
-
 startBtn.onclick = async () => {
   unlockAudio();
-
   startBtn.style.display = "none";
   difficultyButtons.style.display = "block";
   instructions.style.display = "block";
@@ -675,7 +649,6 @@ startBtn.onclick = async () => {
   // Load sounds AFTER UI + speech
   loadSounds();
 };
-
 startBtn.addEventListener('touchstart', async function(e) {
   e.preventDefault();
   unlockAudio();
@@ -687,7 +660,6 @@ startBtn.addEventListener('touchstart', async function(e) {
   // Load sounds AFTER UI + speech
   loadSounds();
 }, { passive: false });
-
 function startGame(level) {
   if (restartCooldown) return;
   difficulty = level;
@@ -723,7 +695,6 @@ function startGame(level) {
   requestAnimationFrame(gameLoop);
   speak(`${level} mode. Game start.`);
 }
-
 /* -------------------- Inputs -------------------- */
 document.addEventListener("keydown", e => {
   keys[e.key] = true;
@@ -735,6 +706,7 @@ if (isAfterGoal) playSound('take_puck_out_of_goal', 0, table.length);
   cursorPos.x = playerBase.x;
   cursorPos.z = playerBase.z;
   state = 'placing_puck';
+  speak("Puck taken out. Use WASD to position, space to place.");
 }
 else if (state === 'placing_puck' && serveTurn === 'player') {
   puck.x = cursorPos.x;
@@ -744,6 +716,7 @@ else if (state === 'placing_puck' && serveTurn === 'player') {
   playSound('puck_on_table', puck.x, puck.z);
   serveJustStarted = true;
   state = 'playing';
+  speak("Puck placed. Use arrow keys to move mallet and hit it.");
     }
   }
 });
@@ -751,7 +724,6 @@ document.addEventListener("keyup", e => {
   delete keys[e.key];
   if (e.key === ' ') spacePressed = false;
 });
-
 game.addEventListener("pointerdown", e => {
   unlockAudio();
   const { x, z } = screenToTable(e.clientX, e.clientY);
@@ -763,6 +735,12 @@ if (now - lastTap < TAP_INTERVAL && state === 'ready_to_take_out' && serveTurn =
   clampPos(cursorPos, playerBase, true);
   state = 'placing_puck';
   isPointerDown = true;
+  ignoreNextUpForPlace = true;
+  if (placeTapTimeout) clearTimeout(placeTapTimeout);
+  placeTapTimeout = setTimeout(() => {
+    ignoreNextUpForPlace = false;
+  }, 200);
+  speak("Puck taken out. Move finger to position, lift to place.");
   } else if (state === 'placing_puck' && serveTurn === 'player') {
     cursorPos.x = x;
     cursorPos.z = z;
@@ -787,6 +765,10 @@ game.addEventListener("pointermove", e => {
 game.addEventListener("pointerup", () => {
   isPointerDown = false;
   if (state === 'placing_puck' && serveTurn === 'player') {
+    if (ignoreNextUpForPlace) {
+      ignoreNextUpForPlace = false;
+      return;
+    }
     puck.x = cursorPos.x;
     puck.z = cursorPos.z;
     puck.vx = 0;
@@ -794,6 +776,7 @@ game.addEventListener("pointerup", () => {
     playSound('puck_on_table', puck.x, puck.z);
     serveJustStarted = true;
     state = 'playing';
+    speak("Puck placed. Move finger to control mallet and hit the puck.");
   }
   else if (state === 'playing') {
     playerMallet.vx = 0;
