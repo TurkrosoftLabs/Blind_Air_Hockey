@@ -328,10 +328,12 @@ function gameLoop(now) {
       return;
     }
   }
+  // Mallet collisions
+  if (state === 'playing') {
   // Update puck
   puck.x += puck.vx * dt;
   puck.z += puck.vz * dt;
-  const speed = Math.sqrt(puck.vx * puck.vx + puck.vz * puck.vz);
+  const puckSpeed = Math.sqrt(puck.vx * puck.vx + puck.vz * puck.vz);
   puck.vx *= Math.pow(friction, dt * 60);
   puck.vz *= Math.pow(friction, dt * 60);
 if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
@@ -344,21 +346,21 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
   if (puck.x < left) {
     puck.x = left;
     puck.vx = -puck.vx;
-    if (speed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
+    if (puckSpeed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
       handleFlyOff();
       requestAnimationFrame(gameLoop);
       return;
     }
-    hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+    hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
   } else if (puck.x > right) {
     puck.x = right;
     puck.vx = -puck.vx;
-    if (speed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
+    if (puckSpeed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
       handleFlyOff();
       requestAnimationFrame(gameLoop);
       return;
     }
-    hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+    hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
   }
   if (puck.z < 0) {
     if (Math.abs(puck.x) < table.goalWidth / 2) {
@@ -368,12 +370,12 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
     } else {
       puck.z = 0;
       puck.vz = -puck.vz;
-      if (speed > flyOffThreshold) {
+      if (puckSpeed > flyOffThreshold) {
         handleFlyOff();
         requestAnimationFrame(gameLoop);
         return;
       }
-      hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+      hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
     }
   } else if (puck.z > table.length) {
     if (Math.abs(puck.x) < table.goalWidth / 2) {
@@ -383,20 +385,18 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
     } else {
       puck.z = table.length;
       puck.vz = -puck.vz;
-      if (speed > flyOffThreshold) {
+      if (puckSpeed > flyOffThreshold) {
         handleFlyOff();
         requestAnimationFrame(gameLoop);
         return;
       }
-      hitSound = speed > 5 ? 'puck_hit_edge_hard' : speed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
+      hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
     }
   }
   if (hitSound) {
     playSound(hitSound, puck.x, puck.z);
     if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(40);
   }
-  // Mallet collisions
-  if (state === 'playing') {
     let oldPlayerX = playerMallet.x, oldPlayerZ = playerMallet.z;
     let oldAiX = aiMallet.x, oldAiZ = aiMallet.z;
     // Player input
@@ -436,7 +436,7 @@ if (puck.z > midline && puck.vz > 0) {
     aiTargetX += (Math.random() * 2 - 1) * aiError;
     aiTargetZ = predictZ;
 
-    if (puck.z > midline && speed < 0.1) {
+    if (puck.z > midline && puckSpeed < 0.1) {
       aiTargetZ = puck.z - 0.2;
       aiTargetX = puck.x + (Math.random() * 0.2 - 0.1);
     }
@@ -467,32 +467,13 @@ if (!serveJustStarted &&
   serveJustStarted = false;
       lastTouch = 'opponent';
       playSound('mallet_hit_puck', puck.x, puck.z);
-  } else if (state === 'placing_puck') {
-    if (serveTurn === 'player') {
-      if (isPointerDown) {
-        cursorPos.x = targetPos.x;
-        cursorPos.z = targetPos.z;
-        clampPos(cursorPos, playerBase, true);
-      }
-      let keySpeed = (keys['Shift'] ? 4 : 2) * dt;
-      if (keys['A']) cursorPos.x -= keySpeed;
-      if (keys['D']) cursorPos.x += keySpeed;
-      if (keys['W']) cursorPos.z -= keySpeed;
-      if (keys['S']) cursorPos.z += keySpeed;
-      const clamped = clampPos(cursorPos, playerBase, true);
-      if (clamped && now - lastEdgeTime > EDGE_COOLDOWN) {
-        playSound('mallet_edge', cursorPos.x, cursorPos.z);
-        lastEdgeTime = now;
-      }
-    }
-  }
   // Audio loops
-  if (speed > 0.1) {
-    if (!puckSlideLoop) puckSlideLoop = playSound('puck_slide', puck.x, puck.z, true, speed / 5);
+  if (puckSpeed > 0.1) {
+    if (!puckSlideLoop) puckSlideLoop = playSound('puck_slide', puck.x, puck.z, true, puckSpeed / 5);
     else {
       puckSlideLoop.p.positionX.value = puck.x;
       puckSlideLoop.p.positionZ.value = puck.z;
-      puckSlideLoop.g.gain.value = speed / 5;
+      puckSlideLoop.g.gain.value = puckSpeed / 5;
     }
   } else if (puckSlideLoop) {
     stopLoop(puckSlideLoop);
@@ -521,6 +502,24 @@ if (!serveJustStarted &&
   } else if (aiMalletSlideLoop) {
     stopLoop(aiMalletSlideLoop);
     aiMalletSlideLoop = null;
+    } else if (state === 'placing_puck') {
+    if (serveTurn === 'player') {
+      if (isPointerDown) {
+        cursorPos.x = targetPos.x;
+        cursorPos.z = targetPos.z;
+        clampPos(cursorPos, playerBase, true);
+      }
+      let keySpeed = (keys['Shift'] ? 4 : 2) * dt;
+      if (keys['A']) cursorPos.x -= keySpeed;
+      if (keys['D']) cursorPos.x += keySpeed;
+      if (keys['W']) cursorPos.z -= keySpeed;
+      if (keys['S']) cursorPos.z += keySpeed;
+      const clamped = clampPos(cursorPos, playerBase, true);
+      if (clamped && now - lastEdgeTime > EDGE_COOLDOWN) {
+        playSound('mallet_edge', cursorPos.x, cursorPos.z);
+        lastEdgeTime = now;
+      }
+    }
   }
   // Visuals
   if (canvas) {
