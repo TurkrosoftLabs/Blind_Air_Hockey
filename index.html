@@ -455,54 +455,53 @@ if (puck.z < midline && puck.vz < 0) {
     aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
     aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
     // Collisions
-if (!serveJustStarted &&
-    puck.z > midline - puck.radius &&
+if (puck.z > midline - puck.radius &&
     collideMalletPuck(playerMallet, puck)) {
   lastTouch = 'player';
   playSound('mallet_hit_puck', puck.x, puck.z);
-      if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(50);
-    }
-  }
+  if (document.getElementById("toggleHaptics").checked && navigator.vibrate) navigator.vibrate(50);
+}
 if (puck.z < midline && collideMalletPuck(aiMallet, puck)) {
   serveJustStarted = false;
-      lastTouch = 'opponent';
-      playSound('mallet_hit_puck', puck.x, puck.z);
-  // Audio loops
-  if (puckSpeed > 0.1) {
-    if (!puckSlideLoop) puckSlideLoop = playSound('puck_slide', puck.x, puck.z, true, puckSpeed / 5);
-    else {
-      puckSlideLoop.p.positionX.value = puck.x;
-      puckSlideLoop.p.positionZ.value = puck.z;
-      puckSlideLoop.g.gain.value = puckSpeed / 5;
-    }
-  } else if (puckSlideLoop) {
-    stopLoop(puckSlideLoop);
-    puckSlideLoop = null;
+  lastTouch = 'opponent';
+  playSound('mallet_hit_puck', puck.x, puck.z);
+}
+// Audio loops (now every frame during 'playing')
+if (puckSpeed > 0.1) {
+  if (!puckSlideLoop) puckSlideLoop = playSound('puck_slide', puck.x, puck.z, true, puckSpeed / 5);
+  else {
+    puckSlideLoop.p.positionX.value = puck.x;
+    puckSlideLoop.p.positionZ.value = puck.z;
+    puckSlideLoop.g.gain.value = puckSpeed / 5;
   }
-  const playerMalletSpeed = Math.sqrt(playerMallet.vx ** 2 + playerMallet.vz ** 2);
-  if (playerMalletSpeed > 0.1) {
-    if (!playerMalletSlideLoop) playerMalletSlideLoop = playSound('mallet_slide', playerMallet.x, playerMallet.z, true, playerMalletSpeed / 5);
-    else {
-      playerMalletSlideLoop.p.positionX.value = playerMallet.x;
-      playerMalletSlideLoop.p.positionZ.value = playerMallet.z;
-      playerMalletSlideLoop.g.gain.value = playerMalletSpeed / 5;
-    }
-  } else if (playerMalletSlideLoop) {
-    stopLoop(playerMalletSlideLoop);
-    playerMalletSlideLoop = null;
+} else if (puckSlideLoop) {
+  stopLoop(puckSlideLoop);
+  puckSlideLoop = null;
+}
+const playerMalletSpeed = Math.sqrt(playerMallet.vx ** 2 + playerMallet.vz ** 2);
+if (playerMalletSpeed > 0.1) {
+  if (!playerMalletSlideLoop) playerMalletSlideLoop = playSound('mallet_slide', playerMallet.x, playerMallet.z, true, playerMalletSpeed / 5);
+  else {
+    playerMalletSlideLoop.p.positionX.value = playerMallet.x;
+    playerMalletSlideLoop.p.positionZ.value = playerMallet.z;
+    playerMalletSlideLoop.g.gain.value = playerMalletSpeed / 5;
   }
-  const aiMalletSpeed = Math.sqrt(aiMallet.vx ** 2 + aiMallet.vz ** 2);
-  if (aiMalletSpeed > 0.1) {
-    if (!aiMalletSlideLoop) aiMalletSlideLoop = playSound('mallet_slide', aiMallet.x, aiMallet.z, true, aiMalletSpeed / 5);
-    else {
-      aiMalletSlideLoop.p.positionX.value = aiMallet.x;
-      aiMalletSlideLoop.p.positionZ.value = aiMallet.z;
-      aiMalletSlideLoop.g.gain.value = aiMalletSpeed / 5;
-    }
-  } else if (aiMalletSlideLoop) {
-    stopLoop(aiMalletSlideLoop);
-    aiMalletSlideLoop = null;
-    }} else if (state === 'placing_puck') {
+} else if (playerMalletSlideLoop) {
+  stopLoop(playerMalletSlideLoop);
+  playerMalletSlideLoop = null;
+}
+const aiMalletSpeed = Math.sqrt(aiMallet.vx ** 2 + aiMallet.vz ** 2);
+if (aiMalletSpeed > 0.1) {
+  if (!aiMalletSlideLoop) aiMalletSlideLoop = playSound('mallet_slide', aiMallet.x, aiMallet.z, true, aiMalletSpeed / 5);
+  else {
+    aiMalletSlideLoop.p.positionX.value = aiMallet.x;
+    aiMalletSlideLoop.p.positionZ.value = aiMallet.z;
+    aiMalletSlideLoop.g.gain.value = aiMalletSpeed / 5;
+  }
+} else if (aiMalletSlideLoop) {
+  stopLoop(aiMalletSlideLoop);
+  aiMalletSlideLoop = null;
+}
     if (serveTurn === 'player') {
       if (isPointerDown) {
         cursorPos.x = targetPos.x;
