@@ -502,7 +502,7 @@ if (!serveJustStarted &&
   } else if (aiMalletSlideLoop) {
     stopLoop(aiMalletSlideLoop);
     aiMalletSlideLoop = null;
-    } else if (state === 'placing_puck') {
+    }} else if (state === 'placing_puck') {
     if (serveTurn === 'player') {
       if (isPointerDown) {
         cursorPos.x = targetPos.x;
