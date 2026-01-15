@@ -767,6 +767,7 @@ if (now - lastTap < TAP_INTERVAL && state === 'ready_to_take_out' && serveTurn =
   clampPos(cursorPos, playerBase, true);
   state = 'placing_puck';
   justEnteredPlacing = true;
+  waitingForPlace = true;
   isPointerDown = true;
   } else if (state === 'placing_puck' && serveTurn === 'player') {
     cursorPos.x = x;
