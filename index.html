@@ -344,7 +344,6 @@ function gameLoop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
-  // Time limit handling — only run if explicitly finite
   if (timeLeft !== Infinity) {
     timeLeft -= dt;
     if (timeLeft <= 0) {
@@ -369,20 +368,24 @@ function gameLoop(now) {
     const puckSpeed = Math.hypot(puck.vx, puck.vz);
     let hitSound = null;
 
-    const left  = -table.width/2 + puck.radius;
-    const right =  table.width/2 - puck.radius;
+    const left = -table.width/2 + puck.radius;
+    const right = table.width/2 - puck.radius;
 
     if (puck.x < left) {
       puck.x = left; puck.vx = -puck.vx;
       hitSound = chooseHitSound(puckSpeed);
       if (puckSpeed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
-        handleFlyOff(); return;
+        handleFlyOff();
+        requestAnimationFrame(gameLoop);
+        return;
       }
     } else if (puck.x > right) {
       puck.x = right; puck.vx = -puck.vx;
       hitSound = chooseHitSound(puckSpeed);
       if (puckSpeed > flyOffThreshold && Math.abs(puck.vx) > Math.abs(puck.vz)) {
-        handleFlyOff(); return;
+        handleFlyOff();
+        requestAnimationFrame(gameLoop);
+        return;
       }
     }
 
@@ -394,7 +397,9 @@ function gameLoop(now) {
       puck.z = table.length; puck.vz = -puck.vz;
       hitSound = chooseHitSound(puckSpeed);
       if (puckSpeed > flyOffThreshold) {
-        handleFlyOff(); return;
+        handleFlyOff();
+        requestAnimationFrame(gameLoop);
+        return;
       }
     }
 
@@ -409,7 +414,9 @@ function gameLoop(now) {
 
     if (hitSound) {
       playSound(hitSound, puck.x, puck.z);
-      if (document.getElementById("toggleHaptics")?.checked && navigator.vibrate) navigator.vibrate(40);
+      if (document.getElementById("toggleHaptics")?.checked && navigator.vibrate) {
+        navigator.vibrate(40);
+      }
     }
   }
 
@@ -433,7 +440,12 @@ function gameLoop(now) {
   if (keys['ArrowRight']) playerMallet.x += keySpeed;
   if (keys['ArrowUp']) playerMallet.z -= keySpeed;
   if (keys['ArrowDown']) playerMallet.z += keySpeed;
-  clampPos(playerMallet, playerBase, true);
+  const clampedKey = clampPos(playerMallet, playerBase, true);
+  if (clampedKey && now - lastEdgeTime > EDGE_COOLDOWN) {
+    playSound('mallet_edge', playerMallet.x, playerMallet.z);
+    lastEdgeTime = now;
+    if (document.getElementById("toggleHaptics")?.checked && navigator.vibrate) navigator.vibrate(40);
+  }
 
   playerMallet.vx = (playerMallet.x - oldPlayerX) / dt || 0;
   playerMallet.vz = (playerMallet.z - oldPlayerZ) / dt || 0;
@@ -490,7 +502,7 @@ function gameLoop(now) {
   aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
   aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
 
-  // Mallet-puck collisions (before final goal check)
+  // Collisions
   if (puck.z > midline - puck.radius && collideMalletPuck(playerMallet, puck)) {
     lastTouch = 'player';
     playSound('mallet_hit_puck', puck.x, puck.z);
@@ -503,7 +515,7 @@ function gameLoop(now) {
     playSound('mallet_hit_puck', puck.x, puck.z);
   }
 
-  // Final goal check (after possible position corrections from collisions)
+  // Goal check after collisions
   if (state === 'playing') {
     if (puck.z < 0 && Math.abs(puck.x) < table.goalWidth / 2) {
       handleGoal('player');
@@ -528,13 +540,13 @@ function gameLoop(now) {
     stopLoop(puckSlideLoop); puckSlideLoop = null;
   }
 
-  const pMalletSpeed = Math.hypot(playerMallet.vx, playerMallet.vz);
-  if (pMalletSpeed > 0.1) {
-    if (!playerMalletSlideLoop) playerMalletSlideLoop = playSound('mallet_slide', playerMallet.x, playerMallet.z, true, pMalletSpeed / 5);
+  const playerMalletSpeed = Math.hypot(playerMallet.vx, playerMallet.vz);
+  if (playerMalletSpeed > 0.1) {
+    if (!playerMalletSlideLoop) playerMalletSlideLoop = playSound('mallet_slide', playerMallet.x, playerMallet.z, true, playerMalletSpeed / 5);
     else {
       playerMalletSlideLoop.p.positionX.value = playerMallet.x;
       playerMalletSlideLoop.p.positionZ.value = playerMallet.z;
-      playerMalletSlideLoop.g.gain.value = pMalletSpeed / 5;
+      playerMalletSlideLoop.g.gain.value = playerMalletSpeed / 5;
     }
   } else if (playerMalletSlideLoop) {
     stopLoop(playerMalletSlideLoop); playerMalletSlideLoop = null;
@@ -552,8 +564,8 @@ function gameLoop(now) {
     stopLoop(aiMalletSlideLoop); aiMalletSlideLoop = null;
   }
 
-  // Placing puck mode
-  if (state === 'placing_puck' && serveTurn === 'player') {
+  // Placing puck
+  if (state === 'placing_puck') {
     if (isPointerDown) {
       cursorPos.x = targetPos.x;
       cursorPos.z = targetPos.z;
@@ -568,53 +580,53 @@ function gameLoop(now) {
   }
 
   // Visuals
-  if (ctx) {
+  if (canvas) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#222';
+    ctx.fillStyle = '#333';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const tl = tableToScreen(-table.width/2, 0);
-    const br = tableToScreen(table.width/2, table.length);
+    const { screenX: tableLeft, screenY: tableTop } = tableToScreen(-table.width / 2, 0);
+    const { screenX: tableRight, screenY: tableBottom } = tableToScreen(table.width / 2, table.length);
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(tl.screenX, tl.screenY, br.screenX - tl.screenX, br.screenY - tl.screenY);
-
-    const midY = tableToScreen(0, midline).screenY;
-    ctx.beginPath(); ctx.moveTo(tl.screenX, midY); ctx.lineTo(br.screenX, midY); ctx.stroke();
-
-    const gh = table.goalWidth / 2;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(tableLeft, tableTop, tableRight - tableLeft, tableBottom - tableTop);
+    const midlineY = tableToScreen(0, midline).screenY;
     ctx.beginPath();
-    ctx.moveTo(...Object.values(tableToScreen(-gh, 0)));
-    ctx.lineTo(...Object.values(tableToScreen(gh, 0)));
-    ctx.moveTo(...Object.values(tableToScreen(-gh, table.length)));
-    ctx.lineTo(...Object.values(tableToScreen(gh, table.length)));
+    ctx.moveTo(tableLeft, midlineY);
+    ctx.lineTo(tableRight, midlineY);
     ctx.stroke();
-
-    if (puck.z > -3 && puck.z < table.length + 3) {
-      const ps = tableToScreen(puck.x, puck.z);
+    // Goals
+    const goalHalf = table.goalWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(tableToScreen(-goalHalf, 0).screenX, tableTop);
+    ctx.lineTo(tableToScreen(goalHalf, 0).screenX, tableTop);
+    ctx.moveTo(tableToScreen(-goalHalf, table.length).screenX, tableBottom);
+    ctx.lineTo(tableToScreen(goalHalf, table.length).screenX, tableBottom);
+    ctx.stroke();
+    // Puck
+    if (puck.z > -5 && puck.z < table.length + 5) {
+      const puckScreen = tableToScreen(puck.x, puck.z);
       ctx.beginPath();
-      ctx.arc(ps.screenX, ps.screenY, puck.radius / table.width * innerWidth * 1.4, 0, Math.PI*2);
-      ctx.fillStyle = '#e33';
+      ctx.arc(puckScreen.screenX, puckScreen.screenY,
+              puck.radius / table.width * innerWidth, 0, 2 * Math.PI);
+      ctx.fillStyle = '#f00';
       ctx.fill();
     }
-
-    const pScreen = tableToScreen(playerMallet.x, playerMallet.z);
+    // Mallets
+    const playerScreen = tableToScreen(playerMallet.x, playerMallet.z);
     ctx.beginPath();
-    ctx.arc(pScreen.screenX, pScreen.screenY, playerMallet.radius / table.width * innerWidth * 1.6, 0, Math.PI*2);
-    ctx.fillStyle = '#3f3';
+    ctx.arc(playerScreen.screenX, playerScreen.screenY, playerMallet.radius / table.width * innerWidth, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0f0';
     ctx.fill();
-
     const aiScreen = tableToScreen(aiMallet.x, aiMallet.z);
     ctx.beginPath();
-    ctx.arc(aiScreen.screenX, aiScreen.screenY, aiMallet.radius / table.width * innerWidth * 1.6, 0, Math.PI*2);
-    ctx.fillStyle = '#33f';
+    ctx.arc(aiScreen.screenX, aiScreen.screenY, aiMallet.radius / table.width * innerWidth, 0, 2 * Math.PI);
+    ctx.fillStyle = '#00f';
     ctx.fill();
-
     if (state === 'placing_puck') {
-      const cs = tableToScreen(cursorPos.x, cursorPos.z);
+      const cursorScreen = tableToScreen(cursorPos.x, cursorPos.z);
       ctx.beginPath();
-      ctx.arc(cs.screenX, cs.screenY, 8, 0, Math.PI*2);
-      ctx.fillStyle = '#ff6';
+      ctx.arc(cursorScreen.screenX, cursorScreen.screenY, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ff0';
       ctx.fill();
     }
   }
@@ -630,6 +642,7 @@ function stopPuckMotion() {
 function handleGoal(scorer) {
   serveJustStarted = false;
   stopPuckMotion();
+  puck.x = 0; puck.z = midline;
   playSound('score_goal', 0, scorer === 'player' ? 0 : table.length);
   if (scorer === 'player') {
     playerScore++;
@@ -643,7 +656,7 @@ function handleGoal(scorer) {
   updateStatus();
   isAfterGoal = true;
   lastTouch = null;
-  if (scoreToWin !== Infinity && (playerScore >= scoreToWin || opponentScore >= scoreToWin)) {
+  if (playerScore >= scoreToWin || opponentScore >= scoreToWin) {
     endGame();
     return;
   }
@@ -653,6 +666,7 @@ function handleGoal(scorer) {
 function handleFlyOff() {
   serveJustStarted = false;
   stopPuckMotion();
+  puck.x = 0; puck.z = midline;
   playSound('puck_out_of_table', 0, midline);
   serveTurn = lastTouch === 'player' ? 'opponent' : 'player';
   isAfterGoal = false;
@@ -665,14 +679,13 @@ function setupServe() {
   stopPuckMotion();
   playerMallet.x = playerBase.x; playerMallet.z = playerBase.z;
   aiMallet.x = aiBase.x; aiMallet.z = aiBase.z;
-
-  const randOffset = () => (Math.random() - 0.5) * 0.12;
-
   if (serveTurn === 'player') {
-    puck.x = 0; puck.z = -999;
+    puck.x = 0;
+    puck.z = -999;
     state = 'ready_to_take_out';
     speak("Your serve.");
   } else {
+    const randOffset = () => (Math.random() - 0.5) * 0.12;
     puck.x = aiBase.x + randOffset();
     puck.z = aiBase.z + randOffset() * 0.6;
     clampPos(puck, aiBase, false);
@@ -680,7 +693,6 @@ function setupServe() {
     state = 'ai_serving';
     aiServePhase = 'windup';
     if (isAfterGoal) playSound('take_puck_out_of_goal', 0, 0);
-
     const delay = difficulty === 'easy' ? 3400 : difficulty === 'medium' ? 2600 : 1800;
     setTimeout(() => {
       if (state === 'ai_serving' && aiServePhase === 'windup') {
@@ -734,21 +746,19 @@ function startGame(level) {
   if (restartCooldown) return;
   difficulty = level;
   switch (level) {
-    case 'easy':   aiMaxSpeed = 1.1; aiError = 0.22; aiPredictBounces = false; break;
-    case 'medium': aiMaxSpeed = 2.0; aiError = 0.11; aiPredictBounces = false; break;
-    case 'hard':   aiMaxSpeed = 3.2; aiError = 0.02; aiPredictBounces = true;  break;
+    case 'easy': aiMaxSpeed = 1; aiError = 0.2; aiPredictBounces = false; break;
+    case 'medium': aiMaxSpeed = 2; aiError = 0.1; aiPredictBounces = false; break;
+    case 'hard': aiMaxSpeed = 3; aiError = 0; aiPredictBounces = true; break;
   }
-  scoreToWin = document.getElementById('scoreToWin').value === 'none' ? Infinity : Number(document.getElementById('scoreToWin').value);
-
-  // Explicit safeguard for timeLeft
+  scoreToWin = document.getElementById('scoreToWin').value === 'none' ? Infinity : parseInt(document.getElementById('scoreToWin').value);
   if (timeLimitCheck.checked) {
     const minutes = Number(timeMinutes.value) || 3;
-    timeLeft = Math.max(60, minutes * 60); // at least 1 minute
+    timeLeft = Math.max(60, minutes * 60);
   } else {
     timeLeft = Infinity;
   }
-
-  playerScore = opponentScore = 0;
+  playerScore = 0;
+  opponentScore = 0;
   serveTurn = 'player';
   isAfterGoal = true;
   lastTouch = null;
@@ -773,13 +783,13 @@ function startGame(level) {
   speak(`Starting game: ${level}`);
 }
 
-/* Inputs */
+/* -------------------- Inputs -------------------- */
 document.addEventListener("keydown", e => {
   keys[e.key] = true;
   if (e.key === 'Enter' && state === 'menu') startBtn.click();
   if (e.key === ' ' && !spacePressed) {
     spacePressed = true;
-    if (state === 'ready_to_take_out' && serveTurn === 'player') {
+    if (state === 'ready_to_take_out') {
       if (isAfterGoal) playSound('take_puck_out_of_goal', 0, table.length);
       cursorPos.x = playerBase.x;
       cursorPos.z = playerBase.z;
@@ -787,7 +797,8 @@ document.addEventListener("keydown", e => {
     } else if (state === 'placing_puck' && serveTurn === 'player') {
       puck.x = cursorPos.x;
       puck.z = cursorPos.z;
-      puck.vx = puck.vz = 0;
+      puck.vx = 0;
+      puck.vz = 0;
       playSound('puck_on_table', puck.x, puck.z);
       serveJustStarted = true;
       state = 'playing';
@@ -805,7 +816,6 @@ game.addEventListener("pointerdown", e => {
   const { x, z } = screenToTable(e.clientX, e.clientY);
   targetPos = { x, z };
   const now = Date.now();
-
   if (now - lastTap < TAP_INTERVAL && state === 'ready_to_take_out' && serveTurn === 'player') {
     if (isAfterGoal) playSound('take_puck_out_of_goal', 0, table.length);
     cursorPos = { x, z };
@@ -814,21 +824,19 @@ game.addEventListener("pointerdown", e => {
     isPointerDown = true;
     ignoreNextUpForPlace = true;
     if (placeTapTimeout) clearTimeout(placeTapTimeout);
-    placeTapTimeout = setTimeout(() => ignoreNextUpForPlace = false, 220);
-  }
-  else if (state === 'placing_puck' && serveTurn === 'player') {
-    cursorPos.x = x; cursorPos.z = z;
+    placeTapTimeout = setTimeout(() => ignoreNextUpForPlace = false, 200);
+  } else if (state === 'placing_puck' && serveTurn === 'player') {
+    cursorPos.x = x;
+    cursorPos.z = z;
     clampPos(cursorPos, playerBase, true);
     isPointerDown = true;
-  }
-  else if (state === 'playing') {
+  } else if (state === 'playing') {
     const oldX = playerMallet.x, oldZ = playerMallet.z;
-    playerMallet.x = x; playerMallet.z = z;
+    playerMallet.x = x;
+    playerMallet.z = z;
     clampPos(playerMallet, playerBase, true);
-    playerMallet.vx = playerMallet.vz = 0;
     isPointerDown = true;
-    if (Math.hypot(playerMallet.x - oldX, playerMallet.z - oldZ) > 0.02)
-      playSound('mallet_tap', playerMallet.x, playerMallet.z);
+    if (playerMallet.x !== oldX || playerMallet.z !== oldZ) playSound('mallet_tap', playerMallet.x, playerMallet.z);
   }
   lastTap = now;
 });
@@ -847,13 +855,11 @@ game.addEventListener("pointerup", () => {
     }
     puck.x = cursorPos.x;
     puck.z = cursorPos.z;
-    puck.vx = puck.vz = 0;
+    puck.vx = 0;
+    puck.vz = 0;
     playSound('puck_on_table', puck.x, puck.z);
     serveJustStarted = true;
     state = 'playing';
-  }
-  else if (state === 'playing') {
-    playerMallet.vx = playerMallet.vz = 0;
   }
 });
 </script>
