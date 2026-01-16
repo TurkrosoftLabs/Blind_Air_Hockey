@@ -668,7 +668,6 @@ function handleGoal(scorer) {
   serveJustStarted = false;
   stopPuckMotion();
   playSound('score_goal', 0, scorer === 'player' ? 0 : table.length);
-
   if (scorer === 'player') {
     playerScore++;
     serveTurn = 'opponent';
@@ -678,16 +677,16 @@ function handleGoal(scorer) {
     serveTurn = 'player';
     speak("Goal! Opponent scored.");
   }
-
   updateStatus();
   isAfterGoal = true;
   lastTouch = null;
-
-  if (scoreToWin !== Infinity && (playerScore >= scoreToWin || opponentScore >= scoreToWin)) {
+  // Only end game if someone has actually reached the required score
+  if (scoreToWin !== Infinity && 
+      (playerScore >= scoreToWin || opponentScore >= scoreToWin)) {
     endGame();
     return;
   }
-
+  // Only continue if game is not over
   setupServe();
 }
 
