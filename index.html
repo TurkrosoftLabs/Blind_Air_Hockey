@@ -178,6 +178,7 @@ let state = "menu";
 let serveTurn = 'player';
 let isAfterGoal = false;
 let serveJustStarted = false;
+let aiServePhase = null; // 'windup' | 'strike' | null
 let lastTouch = null;
 let puck = { x: 0, z: 0, vx: 0, vz: 0, radius: 0.03175 };
 let playerMallet = { x: 0, z: table.length - 0.5, vx: 0, vz: 0, radius: 0.05 };
@@ -316,11 +317,11 @@ function gameLoop(now) {
     }
   }
   // Mallet collisions
+  const puckSpeed = Math.sqrt(puck.vx * puck.vx + puck.vz * puck.vz);
   if (state === 'playing') {
   // Update puck
   puck.x += puck.vx * dt;
   puck.z += puck.vz * dt;
-  const puckSpeed = Math.sqrt(puck.vx * puck.vx + puck.vz * puck.vz);
   puck.vx *= Math.pow(friction, dt * 60);
   puck.vz *= Math.pow(friction, dt * 60);
 if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
@@ -411,32 +412,65 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
     playerMallet.vx = (playerMallet.x - oldPlayerX) / dt || 0;
     playerMallet.vz = (playerMallet.z - oldPlayerZ) / dt || 0;
 // AI
-if (serveJustStarted && serveTurn === 'player') {
+if (state === 'ai_serving') {
+  // Wind-up phase: pull mallet slightly back
+  if (aiServePhase === 'windup') {
+    aiMallet.x = aiBase.x;
+aiMallet.z = aiBase.z + 0.15;
+    clampPos(aiMallet, aiBase, false);
+    aiMallet.vx = 0;
+    aiMallet.vz = 0;
+  }
+  // Strike phase: lunge forward and hit puck
+  else if (aiServePhase === 'strike') {
+    const dx = puck.x - aiMallet.x;
+    const dz = puck.z - aiMallet.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0) {
+      aiMallet.x += (dx / dist) * aiMaxSpeed * 2 * dt;
+      aiMallet.z += (dz / dist) * aiMaxSpeed * 2 * dt;
+      clampPos(aiMallet, aiBase, false);
+    }
+    // Let collision physics do the serve
+    if (collideMalletPuck(aiMallet, puck)) {
+      lastTouch = 'opponent';
+      serveJustStarted = true;
+      aiServePhase = null;
+      state = 'playing';
+      playSound('mallet_hit_puck', puck.x, puck.z);
+    }
+  }
+} else if (serveJustStarted && serveTurn === 'player') {
+  // AI freezes briefly after player serve
   aiMallet.vx = 0;
   aiMallet.vz = 0;
 } else {
-  let aiTargetX = 0, aiTargetZ = aiBase.z;
-if (puck.z < midline && puck.vz < 0) {
-  let predictZ = midline - 0.5;
-  aiTargetX = predictImpact(predictZ, aiPredictBounces);
-  aiTargetX += (Math.random() * 2 - 1) * aiError;
-  aiTargetZ = predictZ;
-  if (puck.z < midline && puckSpeed < 0.1) {
-    aiTargetZ = puck.z + 0.2;
-    aiTargetX = puck.x + (Math.random() * 0.2 - 0.1);
+  // ===== Normal AI play =====
+  let aiTargetX = 0;
+  let aiTargetZ = aiBase.z;
+  if (puck.z < midline && puck.vz < 0) {
+    const predictZ = midline - 0.5;
+    aiTargetX = predictImpact(predictZ, aiPredictBounces);
+    aiTargetX += (Math.random() * 2 - 1) * aiError;
+    aiTargetZ = predictZ;
+    // Nudge stationary puck
+    if (puckSpeed < 0.1) {
+      aiTargetZ = puck.z + 0.2;
+      aiTargetX = puck.x + (Math.random() * 0.2 - 0.1);
+    }
   }
-}
   const dx = aiTargetX - aiMallet.x;
   const dz = aiTargetZ - aiMallet.z;
-  const aiDist = Math.sqrt(dx * dx + dz * dz);
+  const aiDist = Math.hypot(dx, dz);
   if (aiDist > 0) {
     aiMallet.x += (dx / aiDist) * aiMaxSpeed * dt;
     aiMallet.z += (dz / aiDist) * aiMaxSpeed * dt;
     clampPos(aiMallet, aiBase, false);
   }
 }
-    aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
-    aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
+// AI velocity (used for audio + collisions)
+aiMallet.vx = (aiMallet.x - oldAiX) / dt || 0;
+aiMallet.vz = (aiMallet.z - oldAiZ) / dt || 0;
     // Collisions
 if (puck.z > midline - puck.radius &&
     collideMalletPuck(playerMallet, puck)) {
@@ -595,6 +629,7 @@ function handleFlyOff() {
   setupServe();
 }
 function setupServe() {
+  aiServePhase = null;
   stopPuckMotion();
   puck.vx = 0;
   puck.vz = 0;
@@ -607,11 +642,11 @@ function setupServe() {
     speak("Your serve.");
 } else {
   state = 'ai_serving';
-  // 1. Take puck out of goal
+  aiServePhase = 'windup';
   if (isAfterGoal) {
     playSound('take_puck_out_of_goal', 0, 0);
   }
-  // 2. Place puck after 1s
+  // Place puck after 1s
   setTimeout(() => {
     if (state !== 'ai_serving') return;
     puck.x = aiBase.x;
@@ -620,15 +655,10 @@ function setupServe() {
     puck.vz = 0;
     playSound('puck_on_table', puck.x, puck.z);
   }, 1000);
-  // 3. Strike puck after 2s
+  // Strike after 2s
   setTimeout(() => {
     if (state !== 'ai_serving') return;
-    // Serve toward player with slight randomness
-    puck.vz = 3 + Math.random();          // forward
-    puck.vx = (Math.random() - 0.5) * 1;  // sideways
-    serveJustStarted = true;
-    lastTouch = 'opponent';
-    state = 'playing';
+    aiServePhase = 'strike';
   }, 2000);
 }
 }
