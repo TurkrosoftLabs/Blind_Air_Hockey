@@ -350,10 +350,9 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
     }
     hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
   }
-  if (puck.z < 0) {
+  if (state === 'playing' && puck.z < 0) {
     if (Math.abs(puck.x) < table.goalWidth / 2) {
-      handleGoal('player');
-      requestAnimationFrame(gameLoop);
+      handleGoal('player');  if (Math.abs(puck.x) < table.goalWidth / 2) {
       return;
     } else {
       puck.z = 0;
@@ -365,11 +364,10 @@ if (serveJustStarted && Math.hypot(puck.vx, puck.vz) > 0.2) {
       }
       hitSound = puckSpeed > 5 ? 'puck_hit_edge_hard' : puckSpeed > 2 ? 'puck_hit_edge_medium' : 'puck_hit_edge_slow';
     }
-  } else if (puck.z > table.length) {
-    if (Math.abs(puck.x) < table.goalWidth / 2) {
-      handleGoal('opponent');
-      requestAnimationFrame(gameLoop);
-      return;
+  } else if (state === 'playing' && puck.z > table.length) {
+  if (Math.abs(puck.x) < table.goalWidth / 2) {
+    handleGoal('opponent');
+    return;
     } else {
       puck.z = table.length;
       puck.vz = -puck.vz;
@@ -482,6 +480,28 @@ if (puck.z < midline && collideMalletPuck(aiMallet, puck)) {
   serveJustStarted = false;
   lastTouch = 'opponent';
   playSound('mallet_hit_puck', puck.x, puck.z);
+}
+if (state === 'playing') {
+    const goalHalf = table.goalWidth / 2;
+    // Player scores? (puck at opponent's goal)
+    if (puck.z < 0 && Math.abs(puck.x) < goalHalf) {
+        handleGoal('player');
+        return; // stop this frame
+    }
+    // Opponent scores? (puck at player's goal)
+    if (puck.z > table.length && Math.abs(puck.x) < goalHalf) {
+        handleGoal('opponent');
+        return; // stop this frame
+    }
+    // Optional: bounce back if puck hits wall outside goal
+    if (puck.z < 0 && Math.abs(puck.x) >= goalHalf) {
+        puck.z = 0;
+        puck.vz = -puck.vz;
+    }
+    if (puck.z > table.length && Math.abs(puck.x) >= goalHalf) {
+        puck.z = table.length;
+        puck.vz = -puck.vz;
+    }
 }
 // Audio loops (now every frame during 'playing')
 if (puckSpeed > 0.1) {
@@ -596,10 +616,17 @@ function stopPuckMotion() {
     puckSlideLoop = null;
   }
 }
+function deactivatePuck() {
+  puck.x = 0;
+  puck.z = -999; // safely off-table
+  puck.vx = 0;
+  puck.vz = 0;
+}
 function handleGoal(scorer) {
   serveJustStarted = false;
+  deactivatePuck();   // ← ADD THIS LINE
   stopPuckMotion();
-const concederPosZ = scorer === 'player' ? 0 : table.length;
+  const concederPosZ = scorer === 'player' ? 0 : table.length;
   playSound('score_goal', 0, concederPosZ);
   if (scorer === 'player') {
     playerScore++;
@@ -621,8 +648,9 @@ const concederPosZ = scorer === 'player' ? 0 : table.length;
 }
 function handleFlyOff() {
   serveJustStarted = false;
+  deactivatePuck();   // ← ADD THIS LINE
   stopPuckMotion();
-  playSound('puck_out_of_table', puck.x, puck.z);
+  playSound('puck_out_of_table', 0, midline);
   serveTurn = lastTouch === 'player' ? 'opponent' : 'player';
   isAfterGoal = false;
   lastTouch = null;
